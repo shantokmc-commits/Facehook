@@ -205,6 +205,9 @@ function App() {
   const [onlineUsers,setOnlineUsers] = useState({})
   const [messageText,setMessageText] = useState('')
   const [query,setQuery] = useState('')
+  const [stories,setStories] = useState([])
+  const [viewingStory,setViewingStory] = useState(null)
+  const [storyUploading,setStoryUploading] = useState(false)
 
   useEffect(()=>{localStorage.setItem('fh-lang',lang)},[lang])
   useEffect(()=>{
@@ -278,6 +281,38 @@ function App() {
     setProfile(data)
   }
   async function loadAll() { setLoading(true); await loadProfile(); await Promise.all([loadPosts(),loadFriends(),loadRequests(),loadSentRequests(),loadPeople(),loadNotifications(),loadUnreadMessages(),loadStories()]); setLoading(false) }
+  async function loadStories() {
+    const { data, error } = await supabase.from('stories').select('*').gt('expires_at', new Date().toISOString()).order('created_at', { ascending: false }).limit(50)
+    if (error) { console.error('Stories loading error:', error); return }
+    const ids = [...new Set((data || []).map(story => story.user_id).filter(Boolean))]
+    let profilesById = {}
+    if (ids.length) {
+      const { data: profiles } = await supabase.from('profiles').select('id,full_name,avatar_url').in('id', ids)
+      profilesById = Object.fromEntries((profiles || []).map(p => [p.id, p]))
+    }
+    setStories((data || []).map(story => ({ ...story, author: profilesById[story.user_id] || null })))
+  }
+  async function uploadStory(e) {
+    const selected = e.target.files?.[0]
+    if (!selected) return
+    if (!selected.type.startsWith('image/') && !selected.type.startsWith('video/')) { alert('Choose an image or video.'); e.target.value = ''; return }
+    if (selected.size > 50 * 1024 * 1024) { alert('Story file must be 50 MB or smaller.'); e.target.value = ''; return }
+    setStoryUploading(true)
+    try {
+      const ext = (selected.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+      const path = session.user.id + '/' + Date.now() + '.' + ext
+      const { error: uploadError } = await supabase.storage.from('story-media').upload(path, selected, { contentType: selected.type, cacheControl: '3600' })
+      if (uploadError) throw uploadError
+      const mediaUrl = supabase.storage.from('story-media').getPublicUrl(path).data.publicUrl
+      const { error: insertError } = await supabase.from('stories').insert({ user_id: session.user.id, media_url: mediaUrl, media_type: selected.type })
+      if (insertError) throw insertError
+      await loadStories()
+      alert('Story shared! It will disappear after 24 hours.')
+    } catch (error) {
+      console.error('Story upload error:', error)
+      alert('Could not upload story: ' + (error.message || 'Please try again.'))
+    } finally { setStoryUploading(false); e.target.value = '' }
+  }
   async function loadPosts() {
     const { data, error } = await supabase
       .from('posts')
