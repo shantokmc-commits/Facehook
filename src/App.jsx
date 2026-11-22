@@ -355,8 +355,19 @@ function App() {
     })))
   }
   async function loadPeople() {
-    const {data}=await supabase.from('profiles').select('id,full_name,avatar_url').neq('id',session.user.id).limit(30)
-    setPeople(data||[])
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, full_name, avatar_url')
+      .neq('id', session.user.id)
+      .order('full_name', { ascending: true })
+      .limit(100)
+
+    if (error) {
+      console.error('People loading error:', error)
+      alert('Could not load people: ' + error.message)
+      return
+    }
+    setPeople(data || [])
   }
   async function loadFriends() {
     const {data}=await supabase.from('friendships').select('*, friend:profiles!friendships_friend_id_fkey(id,full_name,avatar_url), requester:profiles!friendships_user_id_fkey(id,full_name,avatar_url)').or(`user_id.eq.${session.user.id},friend_id.eq.${session.user.id}`).eq('status','accepted')
@@ -603,8 +614,8 @@ function App() {
         </>}
         {active==='friends' && <section className="surface p-5"><h2 className="text-xl font-bold mb-4">{t.friends}</h2>
           {requests.length>0 && <><h3 className="font-semibold mb-2">Friend requests</h3>{requests.map(r=><div key={r.id} className="flex items-center gap-3 py-2"><Avatar name={r.requester?.full_name}/><b className="flex-1 text-sm">{r.requester?.full_name}</b><button className="primary-btn !py-2" onClick={()=>acceptRequest(r.id)}>{t.accept}</button></div>)}</>}
-          <h3 className="font-semibold mt-5 mb-3">{t.findFriends}</h3><input className="field mb-3" placeholder={t.search} value={query} onChange={e=>setQuery(e.target.value)}/>{filteredPeople.map(p=><div key={p.id} className="flex items-center gap-3 py-3 border-t"><Avatar name={p.full_name} url={p.avatar_url}/><b className="flex-1 text-sm">{p.full_name}</b><button className="primary-btn !py-2" onClick={()=>sendRequest(p.id)}>{t.sendRequest}</button></div>)}
-          <h3 className="font-semibold mt-5 mb-2">Your friends</h3>{friends.map(f=>{const p=f.user_id===session.user.id?f.friend:f.requester;return <div key={f.id} className="flex items-center gap-3 py-2"><Avatar name={p?.full_name} url={p?.avatar_url}/><span className="font-semibold text-sm">{p?.full_name}</span><span className="text-xs text-emerald-600 ml-auto">Friends</span></div>})}
+          <h3 className="font-semibold mt-5 mb-3">{t.findFriends}</h3><input className="field mb-3" placeholder={t.search} value={query} onChange={e=>setQuery(e.target.value)}/>{filteredPeople.map(p=><div key={p.id} className="flex items-center gap-3 py-3 border-t"><Avatar name={p.full_name} url={p.avatar_url}/><b className="flex-1 text-sm">{p.full_name}</b><button className="primary-btn !py-2" onClick={()=>sendRequest(p.id)}>{t.sendRequest}</button></div>)}{filteredPeople.length===0 && <p className="text-sm text-slate-500 py-4">{people.length===0?'এখনো অন্য কেউ Facehook-এ অ্যাকাউন্ট খোলেনি। নতুন সদস্য যোগ হলে এখানে দেখা যাবে।':'আপনার খোঁজার সঙ্গে মিলে এমন কাউকে পাওয়া যায়নি।'}</p>}
+          <h3 className="font-semibold mt-5 mb-2">Your friends</h3>{friends.map(f=>{const p=f.user_id===session.user.id?f.friend:f.requester;return <div key={f.id} className="flex items-center gap-3 py-2"><Avatar name={p?.full_name} url={p?.avatar_url}/><span className="font-semibold text-sm">{p?.full_name}</span><span className="text-xs text-emerald-600 ml-auto">Friends</span></div>})}{friends.length===0 && <p className="text-sm text-slate-500 py-3">এখনো আপনার কোনো বন্ধু নেই। Find people থেকে সদস্য খুঁজে Friend Request পাঠান।</p>}
         </section>}
         {active==='messages' && <section className="surface p-4"><h2 className="text-xl font-bold mb-4">{t.messages}</h2><div className="grid sm:grid-cols-[190px_1fr] gap-3 min-h-96"><div className="border-r pr-2 space-y-1">{friends.map(f=>{const p=f.user_id===session.user.id?f.friend:f.requester;return <button key={f.id} onClick={()=>openChat(p)} className={`w-full flex items-center gap-2 p-2 rounded-xl text-left ${selectedFriend?.id===p?.id?'bg-blue-50':''}`}><Avatar size="h-8 w-8" name={p?.full_name} url={p?.avatar_url}/><span className="min-w-0 flex-1"><span className="block text-sm font-semibold truncate">{p?.full_name}</span><span className={`block text-[10px] ${onlineUsers[p?.id]?'text-emerald-600':'text-slate-400'}`}>{onlineUsers[p?.id]?t.online:t.offline}</span></span></button>})}</div><div className="flex flex-col min-w-0">{selectedFriend?<><div className="font-bold border-b pb-2"><div>{selectedFriend.full_name}</div><div className={`text-xs font-normal ${onlineUsers[selectedFriend.id]?'text-emerald-600':'text-slate-400'}`}>{onlineUsers[selectedFriend.id]?t.online:t.offline}</div></div><div className="flex-1 py-3 space-y-2 max-h-80 overflow-auto">{messages.map(m=><div key={m.id} className={`flex ${m.sender_id===session.user.id?'justify-end':''}`}><p className={`rounded-2xl px-3 py-2 text-sm max-w-[85%] ${m.sender_id===session.user.id?'bg-facehook text-white':'bg-slate-100'}`}>{m.content}</p></div>)}</div><form onSubmit={sendMessage} className="flex gap-2"><input className="field" value={messageText} onChange={e=>setMessageText(e.target.value)} placeholder="Write a message..."/><button className="primary-btn"><Send size={17}/></button></form></>:<div className="flex-1 grid place-items-center text-slate-400 text-sm">{t.chatSoon}</div>}</div></div></section>}
         {active==='profile' && <section className="surface p-5"><div className="flex items-center gap-4"><div className="relative"><Avatar name={profile?.full_name} url={profile?.avatar_url} size="h-20 w-20"/><label className="absolute -bottom-1 -right-1 bg-facehook text-white p-2 rounded-full cursor-pointer"><Camera size={15}/><input type="file" accept="image/*" className="hidden" onChange={uploadAvatar}/></label></div><div><h2 className="text-xl font-bold">{profile?.full_name}</h2><p className="text-sm text-slate-500">{session.user.email}</p></div></div><form onSubmit={saveProfile} className="mt-6 space-y-3"><label className="text-sm font-semibold">{t.name}</label><input name="full_name" defaultValue={profile?.full_name||''} className="field" required maxLength="60"/><label className="text-sm font-semibold">{t.bio}</label><textarea name="bio" defaultValue={profile?.bio||''} className="field min-h-24" maxLength="250"/><button className="primary-btn">{t.save}</button></form><button onClick={()=>supabase.auth.signOut()} className="mt-6 text-red-600 text-sm flex gap-2 items-center"><LogOut size={17}/>{t.signOut}</button></section>}
