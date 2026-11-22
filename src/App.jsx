@@ -531,16 +531,47 @@ function App() {
   }
 
   async function openChat(friend) {
+    if (!friend?.id) return
     setSelectedFriend(friend)
-    await supabase.from('messages').update({ is_read: true }).eq('sender_id', friend.id).eq('receiver_id', session.user.id).eq('is_read', false)
-    const {data}=await supabase.from('messages').select('*').or(`and(sender_id.eq.${session.user.id},receiver_id.eq.${friend.id}),and(sender_id.eq.${friend.id},receiver_id.eq.${session.user.id})`).order('created_at')
-    setMessages(data||[])
+    const { error: readError } = await supabase
+      .from('messages')
+      .update({ is_read: true })
+      .eq('sender_id', friend.id)
+      .eq('receiver_id', session.user.id)
+      .eq('is_read', false)
+    if (readError) console.error('Mark messages as read error:', readError)
+
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .or(`and(sender_id.eq.${session.user.id},receiver_id.eq.${friend.id}),and(sender_id.eq.${friend.id},receiver_id.eq.${session.user.id})`)
+      .order('created_at', { ascending: true })
+    if (error) {
+      console.error('Load chat error:', error)
+      alert('Could not load messages: ' + error.message)
+      setMessages([])
+      return
+    }
+    setMessages(data || [])
     await loadUnreadMessages()
   }
+
   async function sendMessage(e) {
-    e.preventDefault();if(!messageText.trim()||!selectedFriend)return
-    const {error}=await supabase.from('messages').insert({sender_id:session.user.id,receiver_id:selectedFriend.id,content:messageText.trim()})
-    if(!error){setMessageText('');openChat(selectedFriend)}
+    e.preventDefault()
+    const content = messageText.trim()
+    if (!content || !selectedFriend) return
+    const { error } = await supabase.from('messages').insert({
+      sender_id: session.user.id,
+      receiver_id: selectedFriend.id,
+      content
+    })
+    if (error) {
+      console.error('Send message error:', error)
+      alert('Could not send message: ' + error.message)
+      return
+    }
+    setMessageText('')
+    await openChat(selectedFriend)
   }
   async function uploadAvatar(e) {
     const file = e.target.files?.[0]
