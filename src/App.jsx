@@ -737,6 +737,37 @@ function App() {
       e.target.value = ''
     }
   }
+  async function uploadCover(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      alert('Please choose an image file.')
+      e.target.value = ''
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Image must be 5 MB or smaller.')
+      e.target.value = ''
+      return
+    }
+    try {
+      const extension = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+      const path = `${session.user.id}/cover-${Date.now()}.${extension}`
+      const { error: uploadError } = await supabase.storage.from('avatars').upload(path, file, { upsert: true, contentType: file.type, cacheControl: '3600' })
+      if (uploadError) throw uploadError
+      const url = supabase.storage.from('avatars').getPublicUrl(path).data.publicUrl
+      const { data, error: profileError } = await supabase.from('profiles').update({ cover_url: url }).eq('id', session.user.id).select().single()
+      if (profileError) throw profileError
+      setProfile(data)
+      alert('Cover photo updated successfully!')
+    } catch (error) {
+      console.error('Cover upload error:', error)
+      alert('Cover photo error: ' + (error.message || 'Please try again.'))
+    } finally {
+      e.target.value = ''
+    }
+  }
+
   async function saveProfile(e) {
     e.preventDefault()
     const form = e.currentTarget
@@ -803,7 +834,7 @@ function App() {
           <h3 className="font-semibold mt-5 mb-2">Your friends</h3>{friends.map(f=>{const p=f.user_id===session.user.id?f.friend:f.requester;return <div key={f.id} className="flex items-center gap-3 py-2"><Avatar name={p?.full_name} url={p?.avatar_url}/><span className="font-semibold text-sm">{p?.full_name}</span><span className="text-xs text-emerald-600 ml-auto">Friends</span></div>})}{friends.length===0 && <p className="text-sm text-slate-500 py-3">এখনো আপনার কোনো বন্ধু নেই। Find people থেকে সদস্য খুঁজে Friend Request পাঠান।</p>}
         </section>}
         {active==='messages' && <section className="surface p-4"><h2 className="text-xl font-bold mb-4">{t.messages}</h2><div className="grid sm:grid-cols-[190px_1fr] gap-3 min-h-96"><div className="border-r pr-2 space-y-1">{friends.map(f=>{const p=f.user_id===session.user.id?f.friend:f.requester;return <button key={f.id} onClick={()=>openChat(p)} className={`w-full flex items-center gap-2 p-2 rounded-xl text-left ${selectedFriend?.id===p?.id?'bg-blue-50':''}`}><Avatar size="h-8 w-8" name={p?.full_name} url={p?.avatar_url}/><span className="min-w-0 flex-1"><span className="block text-sm font-semibold truncate">{p?.full_name}</span><span className={`block text-[10px] ${onlineUsers[p?.id]?'text-emerald-600':'text-slate-400'}`}>{onlineUsers[p?.id]?t.online:t.offline}</span></span></button>})}</div><div className="flex flex-col min-w-0">{selectedFriend?<><div className="font-bold border-b pb-2"><div>{selectedFriend.full_name}</div><div className={`text-xs font-normal ${onlineUsers[selectedFriend.id]?'text-emerald-600':'text-slate-400'}`}>{onlineUsers[selectedFriend.id]?t.online:t.offline}</div></div><div className="flex-1 py-3 space-y-2 max-h-80 overflow-auto">{messages.map(m=><div key={m.id} className={`flex ${m.sender_id===session.user.id?'justify-end':''}`}><p className={`rounded-2xl px-3 py-2 text-sm max-w-[85%] ${m.sender_id===session.user.id?'bg-facehook text-white':'bg-slate-100'}`}>{m.content}</p></div>)}</div><form onSubmit={sendMessage} className="flex gap-2"><input className="field" value={messageText} onChange={e=>setMessageText(e.target.value)} placeholder="Write a message..."/><button className="primary-btn"><Send size={17}/></button></form></>:<div className="flex-1 grid place-items-center text-slate-400 text-sm">{t.chatSoon}</div>}</div></div></section>}
-        {active==='profile' && <section className="surface p-5"><div className="flex items-center gap-4"><div className="relative"><Avatar name={profile?.full_name} url={profile?.avatar_url} size="h-20 w-20"/><label className="absolute -bottom-1 -right-1 bg-facehook text-white p-2 rounded-full cursor-pointer"><Camera size={15}/><input type="file" accept="image/*" className="hidden" onChange={uploadAvatar}/></label></div><div><h2 className="text-xl font-bold">{profile?.full_name}</h2><p className="text-sm text-slate-500">{session.user.email}</p></div></div><form onSubmit={saveProfile} className="mt-6 space-y-3"><label className="text-sm font-semibold">{t.name}</label><input name="full_name" defaultValue={profile?.full_name||''} className="field" required maxLength="60"/><label className="text-sm font-semibold">{t.bio}</label><textarea name="bio" defaultValue={profile?.bio||''} className="field min-h-24" maxLength="250"/><button className="primary-btn">{t.save}</button></form><button onClick={()=>supabase.auth.signOut()} className="mt-6 text-red-600 text-sm flex gap-2 items-center"><LogOut size={17}/>{t.signOut}</button></section>}
+        {active==='profile' && <section className="surface overflow-hidden"><div className="relative h-44 sm:h-56 bg-gradient-to-r from-blue-200 via-sky-100 to-indigo-200">{profile?.cover_url && <img src={profile.cover_url} alt="Cover" className="w-full h-full object-cover"/>}<label className="absolute right-3 bottom-3 bg-white text-slate-700 px-3 py-2 rounded-lg shadow cursor-pointer text-sm font-semibold flex items-center gap-2"><Camera size={16}/> Change cover<input type="file" accept="image/*" className="hidden" onChange={uploadCover}/></label></div><div className="px-5 pb-5"><div className="flex flex-wrap items-end gap-4 -mt-12 relative"><div className="relative rounded-full ring-4 ring-white"><Avatar name={profile?.full_name} url={profile?.avatar_url} size="h-24 w-24"/><label className="absolute -bottom-1 -right-1 bg-facehook text-white p-2 rounded-full cursor-pointer"><Camera size={15}/><input type="file" accept="image/*" className="hidden" onChange={uploadAvatar}/></label></div><div className="pb-1"><h2 className="text-xl font-bold">{profile?.full_name}</h2><p className="text-sm text-slate-500">{session.user.email}</p></div></div><form onSubmit={saveProfile} className="mt-6 space-y-3"><label className="text-sm font-semibold">{t.name}</label><input name="full_name" defaultValue={profile?.full_name||''} className="field" required maxLength="60"/><label className="text-sm font-semibold">{t.bio}</label><textarea name="bio" defaultValue={profile?.bio||''} className="field min-h-24" maxLength="250"/><button className="primary-btn">{t.save}</button></form><button onClick={()=>supabase.auth.signOut()} className="mt-6 text-red-600 text-sm flex gap-2 items-center"><LogOut size={17}/>{t.signOut}</button></div></section>}
         {active==='videos' && <><section className="surface p-4"><div className="flex items-center gap-2"><Video size={22} className="text-facehook"/><h2 className="font-bold text-xl">{t.videos}</h2></div><p className="text-sm text-slate-500 mt-1">All video posts shared by Facehook members.</p></section>{posts.filter(p=>p.media_type?.startsWith('video')).length ? posts.filter(p=>p.media_type?.startsWith('video')).map(p=><PostCard key={p.id} post={p} user={session.user} t={t} onRefresh={loadPosts}/>) : <section className="surface p-8 text-center"><Video size={35} className="mx-auto text-slate-300"/><h3 className="font-bold mt-3">No videos yet</h3><p className="text-sm text-slate-500 mt-2">When you or your friends share a video, it will appear here.</p><button className="primary-btn mt-4" onClick={()=>setActive('home')}>Create a post</button></section>}</>}
         {active==='notifications' && <section className="surface p-6"><div className="flex items-center justify-between"><h2 className="font-bold text-xl">{t.notifications}</h2><button className="text-sm text-facehook" onClick={loadNotifications}>Refresh</button></div>{notifications.length ? notifications.map(n=><div key={n.id} className={`py-3 border-t mt-2 flex items-center gap-3 ${n.is_read?'opacity-60':'bg-blue-50/60'}`}><Avatar name={n.actor?.full_name} url={n.actor?.avatar_url}/><div className="flex-1 min-w-0"><p className="text-sm"><b>{n.actor?.full_name || 'A Facehook member'}</b>{n.type==='friend_request'?' sent you a friend request.':n.type==='like'?' liked your post.':n.type==='comment'?' commented on your post.':' interacted with you.'}</p><p className="text-xs text-slate-400">{new Date(n.created_at).toLocaleString()}</p></div>{n.type==='friend_request' && requests.some(r=>r.id===n.friendship_id) && <button className="primary-btn !py-1" onClick={()=>acceptRequest(n.friendship_id)}>{t.accept}</button>}{!n.is_read && <button className="text-xs text-facehook" onClick={()=>markNotificationRead(n.id)}>Mark read</button>}</div>) : <p className="text-sm text-slate-500 mt-4">No notifications yet.</p>}{requests.filter(r=>!notifications.some(n=>n.friendship_id===r.id)).map(r=><div key={r.id} className="py-3 border-t mt-3 flex items-center gap-3"><Avatar name={r.requester?.full_name}/><span className="text-sm flex-1">{r.requester?.full_name} sent you a friend request.</span><button className="primary-btn !py-1" onClick={()=>acceptRequest(r.id)}>{t.accept}</button></div>)}</section>}
       </main>
