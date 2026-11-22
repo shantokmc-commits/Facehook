@@ -210,25 +210,30 @@ function App() {
     }
 
     const postsData = data || []
-    const userIds = [...new Set(postsData.map(post => post.user_id).filter(Boolean))]
-    let profilesById = {}
-
-    if (userIds.length) {
-      const { data: profiles, error: profileError } = await supabase
-        .from('profiles')
-        .select('id, full_name, avatar_url')
-        .in('id', userIds)
-
-      if (profileError) {
-        console.error('Profile loading error:', profileError)
-      } else {
-        profilesById = Object.fromEntries((profiles || []).map(profile => [profile.id, profile]))
-      }
-    }
-
     const postIds = postsData.map(post => post.id)
+
+    let commentsByPost = {}
     let likesByPost = {}
+    let authorIds = [...new Set(postsData.map(post => post.user_id).filter(Boolean))]
+
     if (postIds.length) {
+      const { data: comments, error: commentsError } = await supabase
+        .from('comments')
+        .select('id, post_id, user_id, content, created_at')
+        .in('post_id', postIds)
+        .order('created_at', { ascending: true })
+
+      if (commentsError) {
+        console.error('Comments loading error:', commentsError)
+        alert('Comments loading error: ' + commentsError.message)
+      } else {
+        for (const comment of comments || []) {
+          if (!commentsByPost[comment.post_id]) commentsByPost[comment.post_id] = []
+          commentsByPost[comment.post_id].push(comment)
+          if (comment.user_id) authorIds.push(comment.user_id)
+        }
+      }
+
       const { data: likes, error: likesError } = await supabase
         .from('likes')
         .select('post_id, user_id')
@@ -243,11 +248,29 @@ function App() {
       }
     }
 
+    authorIds = [...new Set(authorIds)]
+    let profilesById = {}
+    if (authorIds.length) {
+      const { data: profiles, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, full_name, avatar_url')
+        .in('id', authorIds)
+
+      if (profileError) {
+        console.error('Profile loading error:', profileError)
+      } else {
+        profilesById = Object.fromEntries((profiles || []).map(item => [item.id, item]))
+      }
+    }
+
     setPosts(postsData.map(post => ({
       ...post,
       author: profilesById[post.user_id] || (post.user_id === session.user.id ? { full_name: profile?.full_name || session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'My Profile', avatar_url: profile?.avatar_url || null } : null),
       likes: likesByPost[post.id] || [],
-      comments: []
+      comments: (commentsByPost[post.id] || []).map(comment => ({
+        ...comment,
+        author: profilesById[comment.user_id] || null
+      }))
     })))
   }
   async function loadPeople() {
