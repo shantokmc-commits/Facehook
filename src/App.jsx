@@ -227,9 +227,6 @@ function App() {
       comments: []
     })))
   }
-
-  setPosts(data || [])
-}
   async function loadPeople() {
     const {data}=await supabase.from('profiles').select('id,full_name,avatar_url').neq('id',session.user.id).limit(30)
     setPeople(data||[])
