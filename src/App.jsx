@@ -275,13 +275,45 @@ function App() {
     if(!error){setMessageText('');openChat(selectedFriend)}
   }
   async function uploadAvatar(e) {
-    const f=e.target.files?.[0];if(!f)return
-    const path=`${session.user.id}/avatar-${Date.now()}.${f.name.split('.').pop()}`
-    const {error}=await supabase.storage.from('avatars').upload(path,f,{upsert:true})
-    if(error){alert(error.message);return}
-    const url=supabase.storage.from('avatars').getPublicUrl(path).data.publicUrl
-    await supabase.from('profiles').update({avatar_url:url}).eq('id',session.user.id)
-    loadProfile()
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      alert('Please choose an image file.')
+      e.target.value = ''
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Image must be 5 MB or smaller.')
+      e.target.value = ''
+      return
+    }
+
+    try {
+      const extension = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+      const path = `${session.user.id}/avatar-${Date.now()}.${extension}`
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(path, file, { upsert: true, contentType: file.type, cacheControl: '3600' })
+      if (uploadError) throw uploadError
+
+      const url = supabase.storage.from('avatars').getPublicUrl(path).data.publicUrl
+      const { data, error: profileError } = await supabase
+        .from('profiles')
+        .update({ avatar_url: url })
+        .eq('id', session.user.id)
+        .select()
+        .single()
+      if (profileError) throw profileError
+
+      setProfile(data)
+      await loadPosts()
+      alert('Profile photo updated successfully!')
+    } catch (error) {
+      console.error('Avatar upload error:', error)
+      alert('Profile photo error: ' + (error.message || 'Please try again.'))
+    } finally {
+      e.target.value = ''
+    }
   }
   async function saveBio(e){e.preventDefault();await supabase.from('profiles').update({bio:e.target.bio.value}).eq('id',session.user.id);loadProfile()}
   const filteredPeople=useMemo(()=>people.filter(p=>(p.full_name||'').toLowerCase().includes(query.toLowerCase())),[people,query])
