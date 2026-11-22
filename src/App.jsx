@@ -101,11 +101,11 @@ function AuthScreen({ lang, setLang }) {
   </div>
 }
 
-function Sidebar({ active, setActive, t, profile, onSignOut }) {
+function Sidebar({ active, setActive, t, profile, onSignOut, unreadMessages }) {
   const items = [[Home,'home',t.home],[Users,'friends',t.friends],[Video,'videos',t.videos],[MessageCircle,'messages',t.messages],[Bell,'notifications',t.notifications],[UserRound,'profile',t.profile]]
   return <aside className="hidden lg:block w-64 shrink-0 pt-5">
     <div className="sticky top-24 space-y-1">
-      {items.map(([Icon,id,label])=><button key={id} onClick={()=>setActive(id)} className={`side-link ${active===id?'side-active':''}`}><Icon size={21}/>{label}</button>)}
+      {items.map(([Icon,id,label])=><button key={id} onClick={()=>setActive(id)} className={`side-link ${active===id?'side-active':''}`}><span className="relative"><Icon size={21}/>{id==='messages' && unreadMessages>0 && <span className="absolute -top-2 -right-2 min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-[10px] leading-4 font-bold">{unreadMessages>9?'9+':unreadMessages}</span>}</span>{label}</button>)}
       <div className="border-t mt-4 pt-4 px-3 flex items-center gap-3"><Avatar name={profile?.full_name} url={profile?.avatar_url}/><div className="min-w-0"><p className="font-semibold text-sm truncate">{profile?.full_name}</p><p className="text-xs text-slate-500">{t.yourAccount}</p></div></div>
       <button onClick={onSignOut} className="side-link text-slate-500"><LogOut size={20}/>{t.signOut}</button>
     </div>
@@ -200,6 +200,7 @@ function App() {
   const [friends,setFriends] = useState([])
   const [selectedFriend,setSelectedFriend] = useState(null)
   const [messages,setMessages] = useState([])
+  const [unreadMessages,setUnreadMessages] = useState(0)
   const [messageText,setMessageText] = useState('')
   const [query,setQuery] = useState('')
 
@@ -228,6 +229,20 @@ function App() {
       .subscribe()
     return () => { supabase.removeChannel(channel) }
   },[session?.user?.id])
+  useEffect(()=>{
+    if (!supabase || !session?.user?.id) return
+    const channel = supabase
+      .channel(`facehook-messages-${session.user.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'messages',
+        filter: `receiver_id=eq.${session.user.id}`
+      }, payload => {
+        loadUnreadMessages()
+        if (selectedFriend?.id === payload.new.sender_id) openChat(selectedFriend)
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  },[session?.user?.id,selectedFriend?.id])
   async function loadProfile() {
     const u=session.user
     let {data}=await supabase.from('profiles').select('*').eq('id',u.id).maybeSingle()
@@ -237,7 +252,7 @@ function App() {
     }
     setProfile(data)
   }
-  async function loadAll() { setLoading(true); await loadProfile(); await Promise.all([loadPosts(),loadFriends(),loadRequests(),loadPeople(),loadNotifications()]); setLoading(false) }
+  async function loadAll() { setLoading(true); await loadProfile(); await Promise.all([loadPosts(),loadFriends(),loadRequests(),loadPeople(),loadNotifications(),loadUnreadMessages()]); setLoading(false) }
   async function loadPosts() {
     const { data, error } = await supabase
       .from('posts')
@@ -327,6 +342,19 @@ function App() {
     const {data}=await supabase.from('friendships').select('*, requester:profiles!friendships_user_id_fkey(id,full_name,avatar_url)').eq('friend_id',session.user.id).eq('status','pending')
     setRequests(data||[])
   }
+  async function loadUnreadMessages() {
+    const { count, error } = await supabase
+      .from('messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('receiver_id', session.user.id)
+      .eq('is_read', false)
+    if (error) {
+      console.error('Unread messages loading error:', error)
+      return
+    }
+    setUnreadMessages(count || 0)
+  }
+
   async function loadNotifications() {
     const { data, error } = await supabase
       .from('notifications')
@@ -438,8 +466,10 @@ function App() {
   }
   async function openChat(friend) {
     setSelectedFriend(friend)
+    await supabase.from('messages').update({ is_read: true }).eq('sender_id', friend.id).eq('receiver_id', session.user.id).eq('is_read', false)
     const {data}=await supabase.from('messages').select('*').or(`and(sender_id.eq.${session.user.id},receiver_id.eq.${friend.id}),and(sender_id.eq.${friend.id},receiver_id.eq.${session.user.id})`).order('created_at')
     setMessages(data||[])
+    await loadUnreadMessages()
   }
   async function sendMessage(e) {
     e.preventDefault();if(!messageText.trim()||!selectedFriend)return
@@ -536,7 +566,7 @@ function App() {
       </div>
     </header>
     <div className="max-w-7xl mx-auto px-3 sm:px-4 flex gap-5">
-      <Sidebar active={active} setActive={setActive} t={t} profile={profile} onSignOut={()=>supabase.auth.signOut()}/>
+      <Sidebar active={active} setActive={setActive} t={t} profile={profile} unreadMessages={unreadMessages} onSignOut={()=>supabase.auth.signOut()}/>
       <main className="w-full max-w-2xl mx-auto lg:mx-0 py-5 pb-24 space-y-4 min-w-0">
         {active==='home' && <>
           <section className="surface p-4">
@@ -559,7 +589,7 @@ function App() {
       </main>
       <aside className="hidden xl:block w-72 pt-6"><div className="surface p-4 sticky top-24"><h3 className="font-bold mb-3">{t.people}</h3>{people.slice(0,7).map(p=><div key={p.id} className="flex items-center gap-2 py-2"><Avatar name={p.full_name} url={p.avatar_url} size="h-8 w-8"/><span className="text-sm font-semibold truncate flex-1">{p.full_name}</span><button onClick={()=>sendRequest(p.id)} className="text-facehook"><Plus size={18}/></button></div>)}<div className="border-t mt-4 pt-3 text-xs text-slate-400">Facehook · {new Date().getFullYear()} · Community guidelines</div></div></aside>
     </div>
-    <nav className="mobile-nav lg:hidden">{navItems.slice(0,5).map(([Icon,id,label])=><button key={id} onClick={()=>setActive(id)} className={active===id?'text-facehook':''}><span className="relative"><Icon size={21}/>{id==='notifications' && notifications.some(n=>!n.is_read) && <span className="absolute -top-2 -right-2 min-w-3.5 h-3.5 px-0.5 rounded-full bg-red-500 text-white text-[9px] leading-3.5 font-bold">{notifications.filter(n=>!n.is_read).length>9?'9+':notifications.filter(n=>!n.is_read).length}</span>}</span><span>{label}</span></button>)}</nav>
+    <nav className="mobile-nav lg:hidden">{navItems.slice(0,5).map(([Icon,id,label])=><button key={id} onClick={()=>setActive(id)} className={active===id?'text-facehook':''}><span className="relative"><Icon size={21}/>{id==='notifications' && notifications.some(n=>!n.is_read) && <span className="absolute -top-2 -right-2 min-w-3.5 h-3.5 px-0.5 rounded-full bg-red-500 text-white text-[9px] leading-3.5 font-bold">{notifications.filter(n=>!n.is_read).length>9?'9+':notifications.filter(n=>!n.is_read).length}</span>}{id==='messages' && unreadMessages>0 && <span className="absolute -top-2 -right-2 min-w-3.5 h-3.5 px-0.5 rounded-full bg-red-500 text-white text-[9px] leading-3.5 font-bold">{unreadMessages>9?'9+':unreadMessages}</span>}</span><span>{label}</span></button>)}</nav>
   </div>
 }
 export default App
