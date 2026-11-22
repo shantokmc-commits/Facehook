@@ -320,7 +320,7 @@ function App() {
     }
     const { error } = await supabase.from('story_views').upsert(
       { story_id: story.id, viewer_id: session.user.id },
-      { onConflict: 'story_id,viewer_id', ignoreDuplicates: false }
+      { onConflict: 'story_id,viewer_id', ignoreDuplicates: true }
     )
     if (error) console.error('Story view recording error:', error)
   }
