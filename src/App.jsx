@@ -513,7 +513,7 @@ function App() {
         <div className="hidden sm:flex bg-slate-100 rounded-full px-4 py-2 items-center gap-2 flex-1 max-w-sm"><Search size={18} className="text-slate-400"/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder={t.search} className="bg-transparent outline-none text-sm w-full"/></div>
         <div className="ml-auto flex items-center gap-2">
           <button className="icon-btn" title={t.language} onClick={()=>setLang(lang==='en'?'bn':'en')}><Globe2 size={19}/><span className="text-xs font-bold">{lang==='en'?'BN':'EN'}</span></button>
-          <button className="icon-btn" title={t.notifications} onClick={()=>setActive('notifications')}><Bell size={19}/></button>
+          <button className="icon-btn relative" title={t.notifications} onClick={()=>setActive('notifications')}><Bell size={19}/>{notifications.some(n=>!n.is_read) && <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-[10px] leading-4 font-bold">{notifications.filter(n=>!n.is_read).length>9?'9+':notifications.filter(n=>!n.is_read).length}</span>}</button>
           <button className="flex items-center gap-2 rounded-full hover:bg-slate-100 p-1" onClick={()=>setActive('profile')}><Avatar name={profile?.full_name} url={profile?.avatar_url} size="h-9 w-9"/><span className="hidden md:block text-sm font-semibold max-w-28 truncate">{profile?.full_name}</span></button>
           <button className="icon-btn hidden sm:flex" title={t.signOut} onClick={()=>supabase.auth.signOut()}><LogOut size={18}/></button>
         </div>
@@ -543,7 +543,7 @@ function App() {
       </main>
       <aside className="hidden xl:block w-72 pt-6"><div className="surface p-4 sticky top-24"><h3 className="font-bold mb-3">{t.people}</h3>{people.slice(0,7).map(p=><div key={p.id} className="flex items-center gap-2 py-2"><Avatar name={p.full_name} url={p.avatar_url} size="h-8 w-8"/><span className="text-sm font-semibold truncate flex-1">{p.full_name}</span><button onClick={()=>sendRequest(p.id)} className="text-facehook"><Plus size={18}/></button></div>)}<div className="border-t mt-4 pt-3 text-xs text-slate-400">Facehook · {new Date().getFullYear()} · Community guidelines</div></div></aside>
     </div>
-    <nav className="mobile-nav lg:hidden">{navItems.slice(0,5).map(([Icon,id,label])=><button key={id} onClick={()=>setActive(id)} className={active===id?'text-facehook':''}><Icon size={21}/><span>{label}</span></button>)}</nav>
+    <nav className="mobile-nav lg:hidden">{navItems.slice(0,5).map(([Icon,id,label])=><button key={id} onClick={()=>setActive(id)} className={active===id?'text-facehook':''}><span className="relative"><Icon size={21}/>{id==='notifications' && notifications.some(n=>!n.is_read) && <span className="absolute -top-2 -right-2 min-w-3.5 h-3.5 px-0.5 rounded-full bg-red-500 text-white text-[9px] leading-3.5 font-bold">{notifications.filter(n=>!n.is_read).length>9?'9+':notifications.filter(n=>!n.is_read).length}</span>}</span><span>{label}</span></button>)}</nav>
   </div>
 }
 export default App
