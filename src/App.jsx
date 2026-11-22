@@ -313,6 +313,26 @@ function App() {
       alert('Could not upload story: ' + (error.message || 'Please try again.'))
     } finally { setStoryUploading(false); e.target.value = '' }
   }
+  async function deleteStory(story) {
+    if (story.user_id !== session.user.id) return
+    if (!confirm('Delete your story? This cannot be undone.')) return
+    try {
+      const marker = '/story-media/'
+      const storagePath = story.media_url.includes(marker) ? decodeURIComponent(story.media_url.split(marker)[1].split('?')[0]) : null
+      if (storagePath) {
+        const { error: storageError } = await supabase.storage.from('story-media').remove([storagePath])
+        if (storageError) throw storageError
+      }
+      const { error } = await supabase.from('stories').delete().eq('id', story.id).eq('user_id', session.user.id)
+      if (error) throw error
+      setViewingStory(null)
+      await loadStories()
+      alert('Story deleted successfully.')
+    } catch (error) {
+      console.error('Story delete error:', error)
+      alert('Could not delete story: ' + (error.message || 'Please try again.'))
+    }
+  }
   async function loadPosts() {
     const { data, error } = await supabase
       .from('posts')
@@ -721,7 +741,7 @@ function App() {
       </main>
       <aside className="hidden xl:block w-72 pt-6"><div className="surface p-4 sticky top-24"><h3 className="font-bold mb-3">{t.people}</h3>{people.slice(0,7).map(p=><div key={p.id} className="flex items-center gap-2 py-2"><Avatar name={p.full_name} url={p.avatar_url} size="h-8 w-8"/><span className="text-sm font-semibold truncate flex-1">{p.full_name}</span><button onClick={()=>sendRequest(p.id)} className="text-facehook"><Plus size={18}/></button></div>)}<div className="border-t mt-4 pt-3 text-xs text-slate-400">Facehook · {new Date().getFullYear()} · Community guidelines</div></div></aside>
     </div>
-    {viewingStory && <div className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-3" onClick={()=>setViewingStory(null)}><button className="absolute top-4 right-4 text-white text-3xl" onClick={()=>setViewingStory(null)} aria-label="Close story">×</button><div className="w-full max-w-md max-h-[90vh] flex flex-col items-center" onClick={e=>e.stopPropagation()}><div className="text-white text-sm mb-3 self-start">{viewingStory.author?.full_name || 'Facehook member'}</div>{viewingStory.media_type?.startsWith('video') ? <video src={viewingStory.media_url} controls autoPlay playsInline className="max-h-[78vh] max-w-full rounded-xl"/> : <img src={viewingStory.media_url} alt="Story" className="max-h-[78vh] max-w-full object-contain rounded-xl"/>}<p className="text-white/70 text-xs mt-3">Disappears after 24 hours</p></div></div>}
+    {viewingStory && <div className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-3" onClick={()=>setViewingStory(null)}><button className="absolute top-4 right-4 text-white text-3xl" onClick={()=>setViewingStory(null)} aria-label="Close story">×</button><div className="w-full max-w-md max-h-[90vh] flex flex-col items-center" onClick={e=>e.stopPropagation()}><div className="text-white text-sm mb-3 self-start">{viewingStory.author?.full_name || 'Facehook member'}</div>{viewingStory.media_type?.startsWith('video') ? <video src={viewingStory.media_url} controls autoPlay playsInline className="max-h-[78vh] max-w-full rounded-xl"/> : <img src={viewingStory.media_url} alt="Story" className="max-h-[78vh] max-w-full object-contain rounded-xl"/>}<p className="text-white/70 text-xs mt-3">Disappears after 24 hours</p>{viewingStory.user_id === session.user.id && <button onClick={()=>deleteStory(viewingStory)} className="mt-3 rounded-full bg-red-600 hover:bg-red-700 text-white text-sm font-semibold px-5 py-2">Delete story</button>}</div></div>}
     <nav className="mobile-nav lg:hidden">{navItems.slice(0,5).map(([Icon,id,label])=><button key={id} onClick={()=>setActive(id)} className={active===id?'text-facehook':''}><span className="relative"><Icon size={21}/>{id==='notifications' && notifications.some(n=>!n.is_read) && <span className="absolute -top-2 -right-2 min-w-3.5 h-3.5 px-0.5 rounded-full bg-red-500 text-white text-[9px] leading-3.5 font-bold">{notifications.filter(n=>!n.is_read).length>9?'9+':notifications.filter(n=>!n.is_read).length}</span>}{id==='messages' && unreadMessages>0 && <span className="absolute -top-2 -right-2 min-w-3.5 h-3.5 px-0.5 rounded-full bg-red-500 text-white text-[9px] leading-3.5 font-bold">{unreadMessages>9?'9+':unreadMessages}</span>}</span><span>{label}</span></button>)}</nav>
   </div>
 }
