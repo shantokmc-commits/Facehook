@@ -212,6 +212,22 @@ function App() {
   },[])
   useEffect(()=>{if(session?.user) loadAll(); else {setProfile(null);setPosts([]);setNotifications([]);setLoading(false)}},[session?.user?.id])
   useEffect(()=>{if(session?.user && active==='notifications') loadNotifications()},[active,session?.user?.id])
+  useEffect(()=>{
+    if (!supabase || !session?.user?.id) return
+    const channel = supabase
+      .channel(`facehook-notifications-${session.user.id}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'notifications',
+        filter: `recipient_id=eq.${session.user.id}`
+      }, () => {
+        loadNotifications()
+        loadRequests()
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  },[session?.user?.id])
   async function loadProfile() {
     const u=session.user
     let {data}=await supabase.from('profiles').select('*').eq('id',u.id).maybeSingle()
