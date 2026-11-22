@@ -117,9 +117,15 @@ function PostCard({ post, user, t, onRefresh }) {
   const [showComments, setShowComments] = useState(false)
   const liked = post.likes?.some(x => x.user_id === user.id)
   async function toggleLike() {
-    if (liked) await supabase.from('likes').delete().eq('post_id',post.id).eq('user_id',user.id)
-    else await supabase.from('likes').insert({post_id:post.id,user_id:user.id})
-    onRefresh()
+    const { error } = liked
+      ? await supabase.from('likes').delete().eq('post_id', post.id).eq('user_id', user.id)
+      : await supabase.from('likes').insert({ post_id: post.id, user_id: user.id })
+    if (error) {
+      console.error('Like update error:', error)
+      alert('Like error: ' + error.message)
+      return
+    }
+    await onRefresh()
   }
   async function addComment(e) {
     e.preventDefault(); if (!comment.trim()) return
@@ -220,10 +226,27 @@ function App() {
       }
     }
 
+    const postIds = postsData.map(post => post.id)
+    let likesByPost = {}
+    if (postIds.length) {
+      const { data: likes, error: likesError } = await supabase
+        .from('likes')
+        .select('post_id, user_id')
+        .in('post_id', postIds)
+      if (likesError) {
+        console.error('Likes loading error:', likesError)
+      } else {
+        for (const like of likes || []) {
+          if (!likesByPost[like.post_id]) likesByPost[like.post_id] = []
+          likesByPost[like.post_id].push({ user_id: like.user_id })
+        }
+      }
+    }
+
     setPosts(postsData.map(post => ({
       ...post,
       author: profilesById[post.user_id] || (post.user_id === session.user.id ? { full_name: profile?.full_name || session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'My Profile', avatar_url: profile?.avatar_url || null } : null),
-      likes: [],
+      likes: likesByPost[post.id] || [],
       comments: []
     })))
   }
