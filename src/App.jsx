@@ -196,6 +196,7 @@ function App() {
   const [people,setPeople] = useState([])
   const [friendEmail,setFriendEmail] = useState('')
   const [requests,setRequests] = useState([])
+  const [sentRequests,setSentRequests] = useState([])
   const [notifications,setNotifications] = useState([])
   const [friends,setFriends] = useState([])
   const [selectedFriend,setSelectedFriend] = useState(null)
@@ -276,7 +277,7 @@ function App() {
     }
     setProfile(data)
   }
-  async function loadAll() { setLoading(true); await loadProfile(); await Promise.all([loadPosts(),loadFriends(),loadRequests(),loadPeople(),loadNotifications(),loadUnreadMessages()]); setLoading(false) }
+  async function loadAll() { setLoading(true); await loadProfile(); await Promise.all([loadPosts(),loadFriends(),loadRequests(),loadSentRequests(),loadPeople(),loadNotifications(),loadUnreadMessages()]); setLoading(false) }
   async function loadPosts() {
     const { data, error } = await supabase
       .from('posts')
@@ -376,6 +377,18 @@ function App() {
   async function loadRequests() {
     const {data}=await supabase.from('friendships').select('*, requester:profiles!friendships_user_id_fkey(id,full_name,avatar_url)').eq('friend_id',session.user.id).eq('status','pending')
     setRequests(data||[])
+  }
+  async function loadSentRequests() {
+    const { data, error } = await supabase
+      .from('friendships')
+      .select('*, recipient:profiles!friendships_friend_id_fkey(id,full_name,avatar_url)')
+      .eq('user_id', session.user.id)
+      .eq('status', 'pending')
+    if (error) {
+      console.error('Sent requests loading error:', error)
+      return
+    }
+    setSentRequests(data || [])
   }
   async function loadUnreadMessages() {
     const { count, error } = await supabase
@@ -482,7 +495,7 @@ function App() {
     }
 
     alert(t.sent)
-    await Promise.all([loadPeople(), loadRequests(), loadFriends()])
+    await Promise.all([loadPeople(), loadRequests(), loadSentRequests(), loadFriends()])
   }
 
   async function acceptRequest(id) {
@@ -497,8 +510,26 @@ function App() {
       alert('Accept request error: ' + error.message)
       return
     }
-    await Promise.all([loadRequests(), loadFriends(), loadPeople()])
+    await Promise.all([loadRequests(), loadSentRequests(), loadFriends(), loadPeople()])
   }
+  async function removeFriendRequest(id, direction) {
+    const column = direction === 'incoming' ? 'friend_id' : 'user_id'
+    const { error } = await supabase
+      .from('friendships')
+      .delete()
+      .eq('id', id)
+      .eq(column, session.user.id)
+      .eq('status', 'pending')
+
+    if (error) {
+      console.error('Friend request removal error:', error)
+      alert('Could not remove friend request: ' + error.message)
+      return
+    }
+    await Promise.all([loadRequests(), loadSentRequests(), loadPeople()])
+    alert(direction === 'incoming' ? 'Friend request declined.' : 'Friend request cancelled.')
+  }
+
   async function openChat(friend) {
     setSelectedFriend(friend)
     await supabase.from('messages').update({ is_read: true }).eq('sender_id', friend.id).eq('receiver_id', session.user.id).eq('is_read', false)
@@ -613,7 +644,7 @@ function App() {
           {posts.length ? posts.map(p=><PostCard key={p.id} post={p} user={session.user} t={t} onRefresh={loadPosts}/>) : <div className="surface p-10 text-center text-slate-500">{t.noPosts}</div>}
         </>}
         {active==='friends' && <section className="surface p-5"><h2 className="text-xl font-bold mb-4">{t.friends}</h2>
-          {requests.length>0 && <><h3 className="font-semibold mb-2">Friend requests</h3>{requests.map(r=><div key={r.id} className="flex items-center gap-3 py-2"><Avatar name={r.requester?.full_name}/><b className="flex-1 text-sm">{r.requester?.full_name}</b><button className="primary-btn !py-2" onClick={()=>acceptRequest(r.id)}>{t.accept}</button></div>)}</>}
+          {requests.length>0 && <><h3 className="font-semibold mb-2">Friend requests</h3>{requests.map(r=><div key={r.id} className="flex items-center gap-3 py-2"><Avatar name={r.requester?.full_name}/><b className="flex-1 text-sm">{r.requester?.full_name}</b><button className="primary-btn !py-2" onClick={()=>acceptRequest(r.id)}>{t.accept}</button><button className="text-sm text-red-600" onClick={()=>removeFriendRequest(r.id,'incoming')}>Reject</button></div>)}</>}{sentRequests.length>0 && <><h3 className="font-semibold mt-4 mb-2">Sent requests</h3>{sentRequests.map(r=><div key={r.id} className="flex items-center gap-3 py-2"><Avatar name={r.recipient?.full_name} url={r.recipient?.avatar_url}/><b className="flex-1 text-sm">{r.recipient?.full_name}</b><span className="text-xs text-amber-600">Pending</span><button className="text-sm text-red-600" onClick={()=>removeFriendRequest(r.id,'outgoing')}>Cancel</button></div>)}</>}
           <h3 className="font-semibold mt-5 mb-3">{t.findFriends}</h3><input className="field mb-3" placeholder={t.search} value={query} onChange={e=>setQuery(e.target.value)}/>{filteredPeople.map(p=><div key={p.id} className="flex items-center gap-3 py-3 border-t"><Avatar name={p.full_name} url={p.avatar_url}/><b className="flex-1 text-sm">{p.full_name}</b><button className="primary-btn !py-2" onClick={()=>sendRequest(p.id)}>{t.sendRequest}</button></div>)}{filteredPeople.length===0 && <p className="text-sm text-slate-500 py-4">{people.length===0?'এখনো অন্য কেউ Facehook-এ অ্যাকাউন্ট খোলেনি। নতুন সদস্য যোগ হলে এখানে দেখা যাবে।':'আপনার খোঁজার সঙ্গে মিলে এমন কাউকে পাওয়া যায়নি।'}</p>}
           <h3 className="font-semibold mt-5 mb-2">Your friends</h3>{friends.map(f=>{const p=f.user_id===session.user.id?f.friend:f.requester;return <div key={f.id} className="flex items-center gap-3 py-2"><Avatar name={p?.full_name} url={p?.avatar_url}/><span className="font-semibold text-sm">{p?.full_name}</span><span className="text-xs text-emerald-600 ml-auto">Friends</span></div>})}{friends.length===0 && <p className="text-sm text-slate-500 py-3">এখনো আপনার কোনো বন্ধু নেই। Find people থেকে সদস্য খুঁজে Friend Request পাঠান।</p>}
         </section>}
