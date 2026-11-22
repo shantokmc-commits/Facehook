@@ -191,9 +191,20 @@ function App() {
   }
   async function loadAll() { setLoading(true); await loadProfile(); await Promise.all([loadPosts(),loadFriends(),loadRequests(),loadPeople()]); setLoading(false) }
   async function loadPosts() {
-    const {data,error}=await supabase.from('posts').select('*, author:profiles!posts_user_id_fkey(id,full_name,avatar_url), likes(user_id), comments(id,content,created_at,author:profiles!comments_user_id_fkey(full_name))').order('created_at',{ascending:false}).limit(40)
-    if (!error) setPosts(data||[])
+  const { data, error } = await supabase
+    .from('posts')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(40)
+
+  if (error) {
+    console.error('Feed loading error:', error)
+    alert('Feed Error: ' + error.message)
+    return
   }
+
+  setPosts(data || [])
+}
   async function loadPeople() {
     const {data}=await supabase.from('profiles').select('id,full_name,avatar_url').neq('id',session.user.id).limit(30)
     setPeople(data||[])
