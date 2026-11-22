@@ -128,9 +128,20 @@ function PostCard({ post, user, t, onRefresh }) {
     await onRefresh()
   }
   async function addComment(e) {
-    e.preventDefault(); if (!comment.trim()) return
-    const { error } = await supabase.from('comments').insert({post_id:post.id,user_id:user.id,content:comment.trim()})
-    if (!error) { setComment(''); onRefresh() }
+    e.preventDefault()
+    if (!comment.trim()) return
+    const { error } = await supabase.from('comments').insert({
+      post_id: post.id,
+      user_id: user.id,
+      content: comment.trim()
+    })
+    if (error) {
+      console.error('Comment insert error:', error)
+      alert('Comment error: ' + error.message)
+      return
+    }
+    setComment('')
+    await onRefresh()
   }
   async function deletePost() {
     if (!confirm('Delete this post?')) return
