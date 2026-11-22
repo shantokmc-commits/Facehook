@@ -191,16 +191,41 @@ function App() {
   }
   async function loadAll() { setLoading(true); await loadProfile(); await Promise.all([loadPosts(),loadFriends(),loadRequests(),loadPeople()]); setLoading(false) }
   async function loadPosts() {
-  const { data, error } = await supabase
-    .from('posts')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(40)
+    const { data, error } = await supabase
+      .from('posts')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(40)
 
-  if (error) {
-    console.error('Feed loading error:', error)
-    alert('Feed Error: ' + error.message)
-    return
+    if (error) {
+      console.error('Feed loading error:', error)
+      alert('Feed Error: ' + error.message)
+      return
+    }
+
+    const postsData = data || []
+    const userIds = [...new Set(postsData.map(post => post.user_id).filter(Boolean))]
+    let profilesById = {}
+
+    if (userIds.length) {
+      const { data: profiles, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, full_name, avatar_url')
+        .in('id', userIds)
+
+      if (profileError) {
+        console.error('Profile loading error:', profileError)
+      } else {
+        profilesById = Object.fromEntries((profiles || []).map(profile => [profile.id, profile]))
+      }
+    }
+
+    setPosts(postsData.map(post => ({
+      ...post,
+      author: profilesById[post.user_id] || null,
+      likes: [],
+      comments: []
+    })))
   }
 
   setPosts(data || [])
