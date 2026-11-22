@@ -315,11 +315,58 @@ function App() {
     } catch(e) { alert(e.message || t.postFailed) } finally {setPublishing(false)}
   }
   async function sendRequest(personId) {
-    const {error}=await supabase.from('friendships').insert({user_id:session.user.id,friend_id:personId,status:'pending'})
-    if (error) alert(error.message); else { alert(t.sent); loadPeople() }
+    const { data: existing, error: checkError } = await supabase
+      .from('friendships')
+      .select('id, user_id, friend_id, status')
+      .or(`and(user_id.eq.${session.user.id},friend_id.eq.${personId}),and(user_id.eq.${personId},friend_id.eq.${session.user.id})`)
+      .limit(1)
+
+    if (checkError) {
+      console.error('Friend request check error:', checkError)
+      alert('Friend request error: ' + checkError.message)
+      return
+    }
+
+    if (existing?.length) {
+      const relation = existing[0]
+      if (relation.status === 'accepted') {
+        alert('You are already friends.')
+      } else if (relation.user_id === session.user.id) {
+        alert('Friend request already sent.')
+      } else {
+        alert('This person has already sent you a request. Please accept it in Friends.')
+      }
+      return
+    }
+
+    const { error } = await supabase.from('friendships').insert({
+      user_id: session.user.id,
+      friend_id: personId,
+      status: 'pending'
+    })
+    if (error) {
+      console.error('Friend request insert error:', error)
+      alert('Friend request error: ' + error.message)
+      return
+    }
+
+    alert(t.sent)
+    await Promise.all([loadPeople(), loadRequests(), loadFriends()])
   }
+
   async function acceptRequest(id) {
-    await supabase.from('friendships').update({status:'accepted'}).eq('id',id);loadRequests();loadFriends()
+    const { error } = await supabase
+      .from('friendships')
+      .update({ status: 'accepted' })
+      .eq('id', id)
+      .eq('friend_id', session.user.id)
+
+    if (error) {
+      console.error('Accept request error:', error)
+      alert('Accept request error: ' + error.message)
+      return
+    }
+    await Promise.all([loadRequests(), loadFriends(), loadPeople()])
   }
   async function openChat(friend) {
     setSelectedFriend(friend)
