@@ -209,6 +209,9 @@ function App() {
   const [viewingStory,setViewingStory] = useState(null)
   const [storyViewers,setStoryViewers] = useState([])
   const [storyViewsLoading,setStoryViewsLoading] = useState(false)
+  const [storyReplies,setStoryReplies] = useState([])
+  const [storyReplyText,setStoryReplyText] = useState('')
+  const [storyReplySending,setStoryReplySending] = useState(false)
   const [storyUploading,setStoryUploading] = useState(false)
 
   useEffect(()=>{localStorage.setItem('fh-lang',lang)},[lang])
@@ -297,6 +300,8 @@ function App() {
   async function openStory(story) {
     setViewingStory(story)
     setStoryViewers([])
+    setStoryReplies([])
+    setStoryReplyText('')
     if (story.user_id === session.user.id) {
       setStoryViewsLoading(true)
       try {
@@ -310,6 +315,16 @@ function App() {
           profilesById = Object.fromEntries((profiles || []).map(person => [person.id, person]))
         }
         setStoryViewers((data || []).map(view => ({ ...view, profile: profilesById[view.viewer_id] || null })))
+        const { data: replies, error: repliesError } = await supabase.from('story_replies').select('id,sender_id,content,created_at').eq('story_id', story.id).order('created_at', { ascending: false })
+        if (repliesError) throw repliesError
+        const senderIds = [...new Set((replies || []).map(reply => reply.sender_id).filter(Boolean))]
+        let replyProfiles = {}
+        if (senderIds.length) {
+          const { data: people, error: peopleError } = await supabase.from('profiles').select('id,full_name,avatar_url').in('id', senderIds)
+          if (peopleError) throw peopleError
+          replyProfiles = Object.fromEntries((people || []).map(person => [person.id, person]))
+        }
+        setStoryReplies((replies || []).map(reply => ({ ...reply, author: replyProfiles[reply.sender_id] || null })))
       } catch (error) {
         console.error('Story viewers loading error:', error)
         alert('Could not load story viewers: ' + (error.message || 'Please try again.'))
@@ -323,6 +338,27 @@ function App() {
       { onConflict: 'story_id,viewer_id', ignoreDuplicates: true }
     )
     if (error) console.error('Story view recording error:', error)
+  }
+  async function sendStoryReply(e) {
+    e.preventDefault()
+    const content = storyReplyText.trim()
+    if (!content || !viewingStory || viewingStory.user_id === session.user.id) return
+    setStoryReplySending(true)
+    try {
+      const { error } = await supabase.from('story_replies').insert({
+        story_id: viewingStory.id,
+        sender_id: session.user.id,
+        content
+      })
+      if (error) throw error
+      setStoryReplyText('')
+      alert('Story reply sent!')
+    } catch (error) {
+      console.error('Story reply error:', error)
+      alert('Could not send story reply: ' + (error.message || 'Please try again.'))
+    } finally {
+      setStoryReplySending(false)
+    }
   }
   async function uploadStory(e) {
     const selected = e.target.files?.[0]
@@ -773,7 +809,7 @@ function App() {
       </main>
       <aside className="hidden xl:block w-72 pt-6"><div className="surface p-4 sticky top-24"><h3 className="font-bold mb-3">{t.people}</h3>{people.slice(0,7).map(p=><div key={p.id} className="flex items-center gap-2 py-2"><Avatar name={p.full_name} url={p.avatar_url} size="h-8 w-8"/><span className="text-sm font-semibold truncate flex-1">{p.full_name}</span><button onClick={()=>sendRequest(p.id)} className="text-facehook"><Plus size={18}/></button></div>)}<div className="border-t mt-4 pt-3 text-xs text-slate-400">Facehook · {new Date().getFullYear()} · Community guidelines</div></div></aside>
     </div>
-    {viewingStory && <div className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-3" onClick={()=>setViewingStory(null)}><button className="absolute top-4 right-4 text-white text-3xl" onClick={()=>setViewingStory(null)} aria-label="Close story">×</button><div className="w-full max-w-md max-h-[90vh] flex flex-col items-center" onClick={e=>e.stopPropagation()}><div className="text-white text-sm mb-3 self-start">{viewingStory.author?.full_name || 'Facehook member'}</div>{viewingStory.media_type?.startsWith('video') ? <video src={viewingStory.media_url} controls autoPlay playsInline className="max-h-[78vh] max-w-full rounded-xl"/> : <img src={viewingStory.media_url} alt="Story" className="max-h-[78vh] max-w-full object-contain rounded-xl"/>}<p className="text-white/70 text-xs mt-3">Disappears after 24 hours</p>{viewingStory.user_id === session.user.id && <div className="w-full mt-3 rounded-xl bg-white/10 p-3 text-white"><div className="text-sm font-bold mb-2">Story viewers ({storyViewers.length})</div>{storyViewsLoading ? <p className="text-xs text-white/70">Loading viewers...</p> : storyViewers.length ? <div className="space-y-2 max-h-32 overflow-y-auto">{storyViewers.map(view=><div key={view.viewer_id} className="flex items-center gap-2 text-sm"><Avatar name={view.profile?.full_name || 'Facehook member'} url={view.profile?.avatar_url} size="h-7 w-7"/><span className="flex-1">{view.profile?.full_name || 'Facehook member'}</span><span className="text-[10px] text-white/60">{new Date(view.viewed_at).toLocaleString()}</span></div>)}</div> : <p className="text-xs text-white/70">No views yet.</p>}</div>}{viewingStory.user_id === session.user.id && <button onClick={()=>deleteStory(viewingStory)} className="mt-3 rounded-full bg-red-600 hover:bg-red-700 text-white text-sm font-semibold px-5 py-2">Delete story</button>}</div></div>}
+    {viewingStory && <div className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-3" onClick={()=>setViewingStory(null)}><button className="absolute top-4 right-4 text-white text-3xl" onClick={()=>setViewingStory(null)} aria-label="Close story">×</button><div className="w-full max-w-md max-h-[90vh] flex flex-col items-center" onClick={e=>e.stopPropagation()}><div className="text-white text-sm mb-3 self-start">{viewingStory.author?.full_name || 'Facehook member'}</div>{viewingStory.media_type?.startsWith('video') ? <video src={viewingStory.media_url} controls autoPlay playsInline className="max-h-[78vh] max-w-full rounded-xl"/> : <img src={viewingStory.media_url} alt="Story" className="max-h-[78vh] max-w-full object-contain rounded-xl"/>}<p className="text-white/70 text-xs mt-3">Disappears after 24 hours</p>{viewingStory.user_id === session.user.id && <div className="w-full mt-3 rounded-xl bg-white/10 p-3 text-white"><div className="text-sm font-bold mb-2">Story viewers ({storyViewers.length})</div>{storyViewsLoading ? <p className="text-xs text-white/70">Loading viewers...</p> : storyViewers.length ? <div className="space-y-2 max-h-32 overflow-y-auto">{storyViewers.map(view=><div key={view.viewer_id} className="flex items-center gap-2 text-sm"><Avatar name={view.profile?.full_name || 'Facehook member'} url={view.profile?.avatar_url} size="h-7 w-7"/><span className="flex-1">{view.profile?.full_name || 'Facehook member'}</span><span className="text-[10px] text-white/60">{new Date(view.viewed_at).toLocaleString()}</span></div>)}</div> : <p className="text-xs text-white/70">No views yet.</p>}</div>}{viewingStory.user_id !== session.user.id && <form onSubmit={sendStoryReply} className="w-full mt-3 flex gap-2"><input value={storyReplyText} onChange={e=>setStoryReplyText(e.target.value)} maxLength={500} placeholder="Reply to this story..." className="flex-1 min-w-0 rounded-full bg-white/95 px-4 py-2 text-sm text-slate-900 outline-none" /><button disabled={storyReplySending || !storyReplyText.trim()} className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{storyReplySending ? 'Sending...' : 'Send'}</button></form>}{viewingStory.user_id === session.user.id && <div className="w-full mt-3 rounded-xl bg-white/10 p-3 text-white"><div className="text-sm font-bold mb-2">Story replies ({storyReplies.length})</div>{storyReplies.length ? <div className="space-y-2 max-h-36 overflow-y-auto">{storyReplies.map(reply=><div key={reply.id} className="flex items-start gap-2 text-sm"><Avatar name={reply.author?.full_name || 'Facehook member'} url={reply.author?.avatar_url} size="h-7 w-7"/><div className="min-w-0 flex-1"><div className="font-semibold">{reply.author?.full_name || 'Facehook member'}</div><p className="text-white/90 break-words">{reply.content}</p><span className="text-[10px] text-white/60">{new Date(reply.created_at).toLocaleString()}</span></div></div>)}</div> : <p className="text-xs text-white/70">No replies yet.</p>}</div>}{viewingStory.user_id === session.user.id && <button onClick={()=>deleteStory(viewingStory)} className="mt-3 rounded-full bg-red-600 hover:bg-red-700 text-white text-sm font-semibold px-5 py-2">Delete story</button>}</div></div>}
     <nav className="mobile-nav lg:hidden">{navItems.slice(0,5).map(([Icon,id,label])=><button key={id} onClick={()=>setActive(id)} className={active===id?'text-facehook':''}><span className="relative"><Icon size={21}/>{id==='notifications' && notifications.some(n=>!n.is_read) && <span className="absolute -top-2 -right-2 min-w-3.5 h-3.5 px-0.5 rounded-full bg-red-500 text-white text-[9px] leading-3.5 font-bold">{notifications.filter(n=>!n.is_read).length>9?'9+':notifications.filter(n=>!n.is_read).length}</span>}{id==='messages' && unreadMessages>0 && <span className="absolute -top-2 -right-2 min-w-3.5 h-3.5 px-0.5 rounded-full bg-red-500 text-white text-[9px] leading-3.5 font-bold">{unreadMessages>9?'9+':unreadMessages}</span>}</span><span>{label}</span></button>)}</nav>
   </div>
 }
