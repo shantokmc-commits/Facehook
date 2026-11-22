@@ -17,7 +17,7 @@ const copy = {
     noPosts: 'No posts yet. Be the first to share something!', addPhoto: 'Add photo',
     sendRequest: 'Add friend', pending: 'Request sent', accept: 'Accept', sent: 'Friend request sent',
     findFriends: 'Find people', emailToFind: 'Enter a person’s email', send: 'Send',
-    chatSoon: 'Choose a friend to start a conversation.', yourAccount: 'Your account', signOut: 'Sign out',
+    chatSoon: 'Choose a friend to start a conversation.', online: 'Online', offline: 'Offline', yourAccount: 'Your account', signOut: 'Sign out',
     setup: 'Connect your Supabase project to activate Facehook.', setupDetail: 'Follow the README setup steps, then add your project URL and anon key.',
     loading: 'Loading...', postFailed: 'Could not publish post', authError: 'Please check your details and try again.',
     emptyComments: 'No comments yet.', photoVideo: 'Photo / Video', language: 'Language', admin: 'Admin',
@@ -34,7 +34,7 @@ const copy = {
     noPosts: 'এখনো কোনো পোস্ট নেই। প্রথম পোস্টটি আপনিই করুন!', addPhoto: 'ছবি যোগ করুন',
     sendRequest: 'বন্ধু করুন', pending: 'রিকোয়েস্ট পাঠানো হয়েছে', accept: 'গ্রহণ করুন', sent: 'ফ্রেন্ড রিকোয়েস্ট পাঠানো হয়েছে',
     findFriends: 'মানুষ খুঁজুন', emailToFind: 'ব্যক্তির ইমেইল লিখুন', send: 'পাঠান',
-    chatSoon: 'কথা শুরু করতে একজন বন্ধুকে বেছে নিন।', yourAccount: 'আপনার অ্যাকাউন্ট', signOut: 'লগআউট',
+    chatSoon: 'কথা শুরু করতে একজন বন্ধুকে বেছে নিন।', online: 'অনলাইনে', offline: 'অফলাইনে', yourAccount: 'আপনার অ্যাকাউন্ট', signOut: 'লগআউট',
     setup: 'Facehook চালু করতে Supabase প্রজেক্ট সংযুক্ত করুন।', setupDetail: 'README-এর নির্দেশনা অনুসরণ করে প্রজেক্ট URL ও anon key যোগ করুন।',
     loading: 'লোড হচ্ছে...', postFailed: 'পোস্ট প্রকাশ করা যায়নি', authError: 'তথ্য যাচাই করে আবার চেষ্টা করুন।',
     emptyComments: 'এখনো কোনো মন্তব্য নেই।', photoVideo: 'ছবি / ভিডিও', language: 'ভাষা', admin: 'অ্যাডমিন',
@@ -201,6 +201,7 @@ function App() {
   const [selectedFriend,setSelectedFriend] = useState(null)
   const [messages,setMessages] = useState([])
   const [unreadMessages,setUnreadMessages] = useState(0)
+  const [onlineUsers,setOnlineUsers] = useState({})
   const [messageText,setMessageText] = useState('')
   const [query,setQuery] = useState('')
 
@@ -228,6 +229,29 @@ function App() {
       })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
+  },[session?.user?.id])
+  useEffect(()=>{
+    if (!supabase || !session?.user?.id) return
+    const channel = supabase
+      .channel(`facehook-presence-${session.user.id}`, { config: { presence: { key: session.user.id } } })
+      .on('presence', { event: 'sync' }, () => {
+        const state = channel.presenceState()
+        const online = {}
+        Object.values(state).flat().forEach(presence => {
+          if (presence.user_id) online[presence.user_id] = true
+        })
+        setOnlineUsers(online)
+      })
+      .subscribe(async status => {
+        if (status === 'SUBSCRIBED') {
+          await channel.track({ user_id: session.user.id, online_at: new Date().toISOString() })
+        }
+      })
+    return () => {
+      channel.untrack()
+      supabase.removeChannel(channel)
+      setOnlineUsers(current => { const next = { ...current }; delete next[session.user.id]; return next })
+    }
   },[session?.user?.id])
   useEffect(()=>{
     if (!supabase || !session?.user?.id) return
@@ -582,7 +606,7 @@ function App() {
           <h3 className="font-semibold mt-5 mb-3">{t.findFriends}</h3><input className="field mb-3" placeholder={t.search} value={query} onChange={e=>setQuery(e.target.value)}/>{filteredPeople.map(p=><div key={p.id} className="flex items-center gap-3 py-3 border-t"><Avatar name={p.full_name} url={p.avatar_url}/><b className="flex-1 text-sm">{p.full_name}</b><button className="primary-btn !py-2" onClick={()=>sendRequest(p.id)}>{t.sendRequest}</button></div>)}
           <h3 className="font-semibold mt-5 mb-2">Your friends</h3>{friends.map(f=>{const p=f.user_id===session.user.id?f.friend:f.requester;return <div key={f.id} className="flex items-center gap-3 py-2"><Avatar name={p?.full_name} url={p?.avatar_url}/><span className="font-semibold text-sm">{p?.full_name}</span><span className="text-xs text-emerald-600 ml-auto">Friends</span></div>})}
         </section>}
-        {active==='messages' && <section className="surface p-4"><h2 className="text-xl font-bold mb-4">{t.messages}</h2><div className="grid sm:grid-cols-[190px_1fr] gap-3 min-h-96"><div className="border-r pr-2 space-y-1">{friends.map(f=>{const p=f.user_id===session.user.id?f.friend:f.requester;return <button key={f.id} onClick={()=>openChat(p)} className={`w-full flex items-center gap-2 p-2 rounded-xl text-left ${selectedFriend?.id===p?.id?'bg-blue-50':''}`}><Avatar size="h-8 w-8" name={p?.full_name} url={p?.avatar_url}/><span className="text-sm font-semibold truncate">{p?.full_name}</span></button>})}</div><div className="flex flex-col min-w-0">{selectedFriend?<><div className="font-bold border-b pb-2">{selectedFriend.full_name}</div><div className="flex-1 py-3 space-y-2 max-h-80 overflow-auto">{messages.map(m=><div key={m.id} className={`flex ${m.sender_id===session.user.id?'justify-end':''}`}><p className={`rounded-2xl px-3 py-2 text-sm max-w-[85%] ${m.sender_id===session.user.id?'bg-facehook text-white':'bg-slate-100'}`}>{m.content}</p></div>)}</div><form onSubmit={sendMessage} className="flex gap-2"><input className="field" value={messageText} onChange={e=>setMessageText(e.target.value)} placeholder="Write a message..."/><button className="primary-btn"><Send size={17}/></button></form></>:<div className="flex-1 grid place-items-center text-slate-400 text-sm">{t.chatSoon}</div>}</div></div></section>}
+        {active==='messages' && <section className="surface p-4"><h2 className="text-xl font-bold mb-4">{t.messages}</h2><div className="grid sm:grid-cols-[190px_1fr] gap-3 min-h-96"><div className="border-r pr-2 space-y-1">{friends.map(f=>{const p=f.user_id===session.user.id?f.friend:f.requester;return <button key={f.id} onClick={()=>openChat(p)} className={`w-full flex items-center gap-2 p-2 rounded-xl text-left ${selectedFriend?.id===p?.id?'bg-blue-50':''}`}><Avatar size="h-8 w-8" name={p?.full_name} url={p?.avatar_url}/><span className="min-w-0 flex-1"><span className="block text-sm font-semibold truncate">{p?.full_name}</span><span className={`block text-[10px] ${onlineUsers[p?.id]?'text-emerald-600':'text-slate-400'}`}>{onlineUsers[p?.id]?t.online:t.offline}</span></span></button>})}</div><div className="flex flex-col min-w-0">{selectedFriend?<><div className="font-bold border-b pb-2"><div>{selectedFriend.full_name}</div><div className={`text-xs font-normal ${onlineUsers[selectedFriend.id]?'text-emerald-600':'text-slate-400'}`}>{onlineUsers[selectedFriend.id]?t.online:t.offline}</div></div><div className="flex-1 py-3 space-y-2 max-h-80 overflow-auto">{messages.map(m=><div key={m.id} className={`flex ${m.sender_id===session.user.id?'justify-end':''}`}><p className={`rounded-2xl px-3 py-2 text-sm max-w-[85%] ${m.sender_id===session.user.id?'bg-facehook text-white':'bg-slate-100'}`}>{m.content}</p></div>)}</div><form onSubmit={sendMessage} className="flex gap-2"><input className="field" value={messageText} onChange={e=>setMessageText(e.target.value)} placeholder="Write a message..."/><button className="primary-btn"><Send size={17}/></button></form></>:<div className="flex-1 grid place-items-center text-slate-400 text-sm">{t.chatSoon}</div>}</div></div></section>}
         {active==='profile' && <section className="surface p-5"><div className="flex items-center gap-4"><div className="relative"><Avatar name={profile?.full_name} url={profile?.avatar_url} size="h-20 w-20"/><label className="absolute -bottom-1 -right-1 bg-facehook text-white p-2 rounded-full cursor-pointer"><Camera size={15}/><input type="file" accept="image/*" className="hidden" onChange={uploadAvatar}/></label></div><div><h2 className="text-xl font-bold">{profile?.full_name}</h2><p className="text-sm text-slate-500">{session.user.email}</p></div></div><form onSubmit={saveProfile} className="mt-6 space-y-3"><label className="text-sm font-semibold">{t.name}</label><input name="full_name" defaultValue={profile?.full_name||''} className="field" required maxLength="60"/><label className="text-sm font-semibold">{t.bio}</label><textarea name="bio" defaultValue={profile?.bio||''} className="field min-h-24" maxLength="250"/><button className="primary-btn">{t.save}</button></form><button onClick={()=>supabase.auth.signOut()} className="mt-6 text-red-600 text-sm flex gap-2 items-center"><LogOut size={17}/>{t.signOut}</button></section>}
         {active==='videos' && <section className="surface p-8 text-center"><Video size={35} className="mx-auto text-facehook"/><h2 className="font-bold text-xl mt-3">{t.videos}</h2><p className="text-sm text-slate-500 mt-2">Video posts from your community will appear in the feed.</p></section>}
         {active==='notifications' && <section className="surface p-6"><div className="flex items-center justify-between"><h2 className="font-bold text-xl">{t.notifications}</h2><button className="text-sm text-facehook" onClick={loadNotifications}>Refresh</button></div>{notifications.length ? notifications.map(n=><div key={n.id} className={`py-3 border-t mt-2 flex items-center gap-3 ${n.is_read?'opacity-60':'bg-blue-50/60'}`}><Avatar name={n.actor?.full_name} url={n.actor?.avatar_url}/><div className="flex-1 min-w-0"><p className="text-sm"><b>{n.actor?.full_name || 'A Facehook member'}</b>{n.type==='friend_request'?' sent you a friend request.':n.type==='like'?' liked your post.':n.type==='comment'?' commented on your post.':' interacted with you.'}</p><p className="text-xs text-slate-400">{new Date(n.created_at).toLocaleString()}</p></div>{n.type==='friend_request' && requests.some(r=>r.id===n.friendship_id) && <button className="primary-btn !py-1" onClick={()=>acceptRequest(n.friendship_id)}>{t.accept}</button>}{!n.is_read && <button className="text-xs text-facehook" onClick={()=>markNotificationRead(n.id)}>Mark read</button>}</div>) : <p className="text-sm text-slate-500 mt-4">No notifications yet.</p>}{requests.filter(r=>!notifications.some(n=>n.friendship_id===r.id)).map(r=><div key={r.id} className="py-3 border-t mt-3 flex items-center gap-3"><Avatar name={r.requester?.full_name}/><span className="text-sm flex-1">{r.requester?.full_name} sent you a friend request.</span><button className="primary-btn !py-1" onClick={()=>acceptRequest(r.id)}>{t.accept}</button></div>)}</section>}
