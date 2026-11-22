@@ -222,7 +222,7 @@ function App() {
 
     setPosts(postsData.map(post => ({
       ...post,
-      author: profilesById[post.user_id] || (post.user_id === session.user.id ? profile : null),
+      author: profilesById[post.user_id] || (post.user_id === session.user.id ? { full_name: profile?.full_name || session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'My Profile', avatar_url: profile?.avatar_url || null } : null),
       likes: [],
       comments: []
     })))
