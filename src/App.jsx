@@ -196,6 +196,7 @@ function App() {
   const [people,setPeople] = useState([])
   const [friendEmail,setFriendEmail] = useState('')
   const [requests,setRequests] = useState([])
+  const [notifications,setNotifications] = useState([])
   const [friends,setFriends] = useState([])
   const [selectedFriend,setSelectedFriend] = useState(null)
   const [messages,setMessages] = useState([])
@@ -209,7 +210,8 @@ function App() {
     const {data:{subscription}}=supabase.auth.onAuthStateChange((_event,s)=>setSession(s))
     return ()=>subscription.unsubscribe()
   },[])
-  useEffect(()=>{if(session?.user) loadAll(); else {setProfile(null);setPosts([]);setLoading(false)}},[session?.user?.id])
+  useEffect(()=>{if(session?.user) loadAll(); else {setProfile(null);setPosts([]);setNotifications([]);setLoading(false)}},[session?.user?.id])
+  useEffect(()=>{if(session?.user && active==='notifications') loadNotifications()},[active,session?.user?.id])
   async function loadProfile() {
     const u=session.user
     let {data}=await supabase.from('profiles').select('*').eq('id',u.id).maybeSingle()
@@ -219,7 +221,7 @@ function App() {
     }
     setProfile(data)
   }
-  async function loadAll() { setLoading(true); await loadProfile(); await Promise.all([loadPosts(),loadFriends(),loadRequests(),loadPeople()]); setLoading(false) }
+  async function loadAll() { setLoading(true); await loadProfile(); await Promise.all([loadPosts(),loadFriends(),loadRequests(),loadPeople(),loadNotifications()]); setLoading(false) }
   async function loadPosts() {
     const { data, error } = await supabase
       .from('posts')
@@ -308,6 +310,43 @@ function App() {
   async function loadRequests() {
     const {data}=await supabase.from('friendships').select('*, requester:profiles!friendships_user_id_fkey(id,full_name,avatar_url)').eq('friend_id',session.user.id).eq('status','pending')
     setRequests(data||[])
+  }
+  async function loadNotifications() {
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('id, actor_id, type, post_id, friendship_id, is_read, created_at')
+      .eq('recipient_id', session.user.id)
+      .order('created_at', { ascending: false })
+      .limit(50)
+
+    if (error) {
+      console.error('Notifications loading error:', error)
+      return
+    }
+
+    const actorIds = [...new Set((data || []).map(item => item.actor_id).filter(Boolean))]
+    let actors = {}
+    if (actorIds.length) {
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, full_name, avatar_url')
+        .in('id', actorIds)
+      actors = Object.fromEntries((profiles || []).map(item => [item.id, item]))
+    }
+    setNotifications((data || []).map(item => ({ ...item, actor: actors[item.actor_id] || null })))
+  }
+
+  async function markNotificationRead(id) {
+    const { error } = await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('id', id)
+      .eq('recipient_id', session.user.id)
+    if (error) {
+      alert('Could not update notification: ' + error.message)
+      return
+    }
+    setNotifications(current => current.map(item => item.id === id ? { ...item, is_read: true } : item))
   }
   async function publish() {
     if (!draft.trim() && !file) return
@@ -500,7 +539,7 @@ function App() {
         {active==='messages' && <section className="surface p-4"><h2 className="text-xl font-bold mb-4">{t.messages}</h2><div className="grid sm:grid-cols-[190px_1fr] gap-3 min-h-96"><div className="border-r pr-2 space-y-1">{friends.map(f=>{const p=f.user_id===session.user.id?f.friend:f.requester;return <button key={f.id} onClick={()=>openChat(p)} className={`w-full flex items-center gap-2 p-2 rounded-xl text-left ${selectedFriend?.id===p?.id?'bg-blue-50':''}`}><Avatar size="h-8 w-8" name={p?.full_name} url={p?.avatar_url}/><span className="text-sm font-semibold truncate">{p?.full_name}</span></button>})}</div><div className="flex flex-col min-w-0">{selectedFriend?<><div className="font-bold border-b pb-2">{selectedFriend.full_name}</div><div className="flex-1 py-3 space-y-2 max-h-80 overflow-auto">{messages.map(m=><div key={m.id} className={`flex ${m.sender_id===session.user.id?'justify-end':''}`}><p className={`rounded-2xl px-3 py-2 text-sm max-w-[85%] ${m.sender_id===session.user.id?'bg-facehook text-white':'bg-slate-100'}`}>{m.content}</p></div>)}</div><form onSubmit={sendMessage} className="flex gap-2"><input className="field" value={messageText} onChange={e=>setMessageText(e.target.value)} placeholder="Write a message..."/><button className="primary-btn"><Send size={17}/></button></form></>:<div className="flex-1 grid place-items-center text-slate-400 text-sm">{t.chatSoon}</div>}</div></div></section>}
         {active==='profile' && <section className="surface p-5"><div className="flex items-center gap-4"><div className="relative"><Avatar name={profile?.full_name} url={profile?.avatar_url} size="h-20 w-20"/><label className="absolute -bottom-1 -right-1 bg-facehook text-white p-2 rounded-full cursor-pointer"><Camera size={15}/><input type="file" accept="image/*" className="hidden" onChange={uploadAvatar}/></label></div><div><h2 className="text-xl font-bold">{profile?.full_name}</h2><p className="text-sm text-slate-500">{session.user.email}</p></div></div><form onSubmit={saveProfile} className="mt-6 space-y-3"><label className="text-sm font-semibold">{t.name}</label><input name="full_name" defaultValue={profile?.full_name||''} className="field" required maxLength="60"/><label className="text-sm font-semibold">{t.bio}</label><textarea name="bio" defaultValue={profile?.bio||''} className="field min-h-24" maxLength="250"/><button className="primary-btn">{t.save}</button></form><button onClick={()=>supabase.auth.signOut()} className="mt-6 text-red-600 text-sm flex gap-2 items-center"><LogOut size={17}/>{t.signOut}</button></section>}
         {active==='videos' && <section className="surface p-8 text-center"><Video size={35} className="mx-auto text-facehook"/><h2 className="font-bold text-xl mt-3">{t.videos}</h2><p className="text-sm text-slate-500 mt-2">Video posts from your community will appear in the feed.</p></section>}
-        {active==='notifications' && <section className="surface p-6"><h2 className="font-bold text-xl">{t.notifications}</h2><p className="text-sm text-slate-500 mt-3">Your friend requests and activity updates appear here.</p>{requests.map(r=><div key={r.id} className="py-3 border-t mt-3 flex items-center gap-3"><Avatar name={r.requester?.full_name}/><span className="text-sm">{r.requester?.full_name} sent you a friend request.</span><button className="primary-btn !py-1" onClick={()=>acceptRequest(r.id)}>{t.accept}</button></div>)}</section>}
+        {active==='notifications' && <section className="surface p-6"><div className="flex items-center justify-between"><h2 className="font-bold text-xl">{t.notifications}</h2><button className="text-sm text-facehook" onClick={loadNotifications}>Refresh</button></div>{notifications.length ? notifications.map(n=><div key={n.id} className={`py-3 border-t mt-2 flex items-center gap-3 ${n.is_read?'opacity-60':'bg-blue-50/60'}`}><Avatar name={n.actor?.full_name} url={n.actor?.avatar_url}/><div className="flex-1 min-w-0"><p className="text-sm"><b>{n.actor?.full_name || 'A Facehook member'}</b>{n.type==='friend_request'?' sent you a friend request.':n.type==='like'?' liked your post.':n.type==='comment'?' commented on your post.':' interacted with you.'}</p><p className="text-xs text-slate-400">{new Date(n.created_at).toLocaleString()}</p></div>{n.type==='friend_request' && requests.some(r=>r.id===n.friendship_id) && <button className="primary-btn !py-1" onClick={()=>acceptRequest(n.friendship_id)}>{t.accept}</button>}{!n.is_read && <button className="text-xs text-facehook" onClick={()=>markNotificationRead(n.id)}>Mark read</button>}</div>) : <p className="text-sm text-slate-500 mt-4">No notifications yet.</p>}{requests.filter(r=>!notifications.some(n=>n.friendship_id===r.id)).map(r=><div key={r.id} className="py-3 border-t mt-3 flex items-center gap-3"><Avatar name={r.requester?.full_name}/><span className="text-sm flex-1">{r.requester?.full_name} sent you a friend request.</span><button className="primary-btn !py-1" onClick={()=>acceptRequest(r.id)}>{t.accept}</button></div>)}</section>}
       </main>
       <aside className="hidden xl:block w-72 pt-6"><div className="surface p-4 sticky top-24"><h3 className="font-bold mb-3">{t.people}</h3>{people.slice(0,7).map(p=><div key={p.id} className="flex items-center gap-2 py-2"><Avatar name={p.full_name} url={p.avatar_url} size="h-8 w-8"/><span className="text-sm font-semibold truncate flex-1">{p.full_name}</span><button onClick={()=>sendRequest(p.id)} className="text-facehook"><Plus size={18}/></button></div>)}<div className="border-t mt-4 pt-3 text-xs text-slate-400">Facehook · {new Date().getFullYear()} · Community guidelines</div></div></aside>
     </div>
