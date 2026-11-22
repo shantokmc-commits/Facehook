@@ -144,8 +144,21 @@ function PostCard({ post, user, t, onRefresh }) {
     await onRefresh()
   }
   async function deletePost() {
-    if (!confirm('Delete this post?')) return
-    await supabase.from('posts').delete().eq('id',post.id); onRefresh()
+    if (!confirm('Are you sure you want to delete this post? This cannot be undone.')) return
+
+    const { error } = await supabase
+      .from('posts')
+      .delete()
+      .eq('id', post.id)
+      .eq('user_id', user.id)
+
+    if (error) {
+      console.error('Post delete error:', error)
+      alert('Could not delete post: ' + error.message)
+      return
+    }
+
+    await onRefresh()
   }
   return <article className="surface p-4">
     <div className="flex items-center gap-3">
